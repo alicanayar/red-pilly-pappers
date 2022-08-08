@@ -9,11 +9,41 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 PURPLE = (128, 0, 255)
-SCREEN_WIDTH = 1100
-SCREEN_HEIGHT = 500
+SCREEN_WIDTH = 1400 #1100
+SCREEN_HEIGHT = 800 #500
 
 
-class Block(Sprite):
+class Entity(Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pg.Surface([20, 30], pg.SRCALPHA)
+        pg.draw.circle(self.image, RED, (10, 10), 10)
+        pg.draw.rect(self.image, RED, (0, 10, 20, 20))
+        self.rect = self.image.get_rect()
+        self.base_image = self.image
+        self.base_center = self.rect.center
+        self.heading = 0
+
+    def set_heading(self, heading):
+        heading = heading % 360
+        self.heading = heading
+        if heading > 0: heading = 360 - heading
+        else: heading = heading*(-1)
+        self.image = pg.transform.rotate(self.base_image, heading)
+        self.rect = self.image.get_rect(center=self.rect.center)
+
+    def get_relativebearing(self, entity):
+        dx = entity.rect.x - self.rect.x
+        dy = entity.rect.y - self.rect.y
+        rads = math.atan2(dx, -dy)
+        degs = math.degrees(rads)
+        rb = degs - self.heading
+        if rb < -180: rb += 360
+        elif rb > 180: rb -= 360
+        print("degs:{} h:{}  rb:{}".format(degs, self.heading, rb))
+        return rb
+
+class Block(Entity):
     def __init__(self):
         super().__init__()
         self.image = pg.Surface([20, 30], pg.SRCALPHA)
@@ -25,16 +55,16 @@ class Block(Sprite):
         self.base_image = self.image
         self.base_center = self.rect.center
         self.circle = Circle(RED, 300, self.rect)
+        self.circle2 = Circle(RED, 100, self.rect)
         self.gid = random.randint(0,1000)
         self.perception_list = pg.sprite.Group()
+        self.range_list = pg.sprite.Group()
         self.heading = 0
 
-    def set_heading(self, heading):
-        if heading > 0: heading = 360 - heading
-        else: heading = heading*(-1)
-        self.heading = heading % 360
-        self.image = pg.transform.rotate(self.base_image, self.heading)
-        self.rect = self.image.get_rect(center=self.base_center)
+    def update(self):
+        super().update()
+        self.circle.rect_ = self.rect
+        self.circle2.rect_ = self.rect
 
 
 class Circle(Sprite):
@@ -50,7 +80,7 @@ class Circle(Sprite):
         self.rect.center = self.rect_.center
 
 
-class Player(Sprite):
+class Player(Entity):
     def __init__(self):
         super().__init__()
         self.image = pg.Surface([20, 30], pg.SRCALPHA)
@@ -63,9 +93,11 @@ class Player(Sprite):
         self.base_center = self.rect.center
 
         self.circle = Circle(BLUE, 300, self.rect)
+        self.circle2 = Circle(BLUE, 100, self.rect)
         self.radar_mode = 0
         self.tracked_entity_id = None
         self.perception_list = pg.sprite.Group()
+        self.range_list = pg.sprite.Group()
         self.entity_list = []
         self.gid = random.randint(0,1000)
         self.heading = 0
@@ -83,22 +115,6 @@ class Player(Sprite):
 
     def get_radar_mode(self):
         return self.radar_mode
-
-    def set_heading(self, heading):
-        if heading > 0: heading = 360 - heading
-        else: heading = heading*(-1)
-        self.heading = heading % 360
-        self.image = pg.transform.rotate(self.base_image, self.heading)
-        self.rect = self.image.get_rect(center=self.base_center)
-
-    def get_relativebearing(self, entity):
-        dx = entity.rect.x - self.rect.x
-        dy = entity.rect.y - self.rect.y
-        rads = math.atan2(dx, -dy)
-        degs = math.degrees(rads)
-        rb = degs - self.heading
-        print("degs:{} h:{}  rb:{}".format(degs, self.heading, rb))
-        return rb
 
     def update(self):
         super().update()
@@ -149,7 +165,7 @@ class Game():
         self.player_list.add(self.player)
 
         self.init_blocks()
-        self.all_sprites_list.add(self.player.circle, self.player)
+        self.all_sprites_list.add(self.player.circle, self.player.circle2, self.player)
         self.clock = pg.time.Clock()
         self.quit = False
 
@@ -160,7 +176,7 @@ class Game():
 
             # Add the block to the list of objects
             self.block_list.add(block)
-            self.all_sprites_list.add(block, block.circle)
+            self.all_sprites_list.add(block, block.circle, block.circle2)
             self.player.entity_list.append((block, block.gid))
 
     def reset(self):
@@ -198,8 +214,11 @@ class Game():
                     self.player.set_heading(270)
                 if event.key == pg.K_DOWN:
                     self.block_list.sprites()[0].set_heading(-450)
+                if event.key == pg.K_UP:
+                    self.block_list.sprites()[0].set_heading(150)
                 if event.key == pg.K_b:
-                    rb = self.player.get_relativebearing(self.block_list.sprites()[0])
+                    # rb = self.player.get_relativebearing(self.block_list.sprites()[0])
+                    rb = self.block_list.sprites()[0].get_relativebearing(self.player)
                     print("rb:", rb)
             elif event.type == pg.MOUSEBUTTONDOWN:
                 pos = pg.mouse.get_pos()
@@ -211,7 +230,7 @@ class Game():
 
     def fire_to_target(self, target_no):
         target = self.player.entity_list[target_no][0]
-        if target != 'skip' and target in self.player.perception_list:
+        if target != 'skip' and target in self.player.perception_list and target in self.player.range_list:
             bullet = Bullet(self.player.rect.x, self.player.rect.y, target.rect.x, target.rect.y, self.player.gid)
             self.all_sprites_list.add(bullet)
             self.bullet_list.add(bullet)
@@ -222,7 +241,7 @@ class Game():
     def fire_to_player(self, striker_no):
         striker = self.player.entity_list[striker_no-3][0]
         if striker != 'skip' and len(self.player_list)!=0:
-            if self.player in striker.perception_list:
+            if self.player in striker.perception_list and self.player in striker.range_list:
                 bullet = Bullet(striker.rect.x, striker.rect.y, self.player.rect.x, self.player.rect.y, striker.gid)
                 self.all_sprites_list.add(bullet)
                 self.bullet_list.add(bullet)
@@ -239,7 +258,7 @@ class Game():
                 # For each block hit, remove the bullet and add to the score
                 for block in block_hit_list:
                     self.bullet_list.remove(bullet)
-                    self.all_sprites_list.remove(bullet, block.circle)
+                    self.all_sprites_list.remove(bullet, block.circle, block.circle2)
                     i = self.player.entity_list.index((block, block.gid))
                     self.player.entity_list[i] = ('skip', -1)
                 # Remove the bullet if it flies up off the screen
@@ -291,6 +310,20 @@ class Game():
                 for perceived in perception_list:
                     block.perception_list.add(perceived)
 
+    def handle_range(self):
+        self.player.range_list.empty()
+        range_list = pg.sprite.spritecollide(self.player.circle2, self.block_list, False)
+        if len(range_list) > 0:
+            for ranged in range_list:
+                self.player.range_list.add(ranged)
+
+        for block in self.block_list:
+            block.range_list.empty()
+            range_list = pg.sprite.spritecollide(block.circle2, self.player_list, False)
+            if len(range_list) > 0:
+                for ranged in range_list:
+                    block.range_list.add(ranged)
+
     def render(self):
         self.screen.fill(WHITE)
         self.all_sprites_list.draw(self.screen)
@@ -304,6 +337,7 @@ class Game():
         # self.listen_events()
         self.all_sprites_list.update()
         self.handle_radar()
+        self.handle_range()
         # print(self.player.perception_list)
         self.fire_bullet()
         self.handle_bullets()
@@ -334,18 +368,5 @@ if __name__ == "__main__":
             game.execute()
     pg.quit()
 
-
-
-
-# class Circle(pygame.sprite.Sprite):
-#     def __init__(self):
-#         pygame.sprite.Sprite.__init__(self)
-#         self.image = pygame.Surface((50, 50))
-#         self.image.fill((255, 255, 255))
-#         pygame.draw.circle(self.image, (255, 0, 0), (25, 25), 25, 2)
-#         self.rect = self.image.get_rect()
-#
-#     def update(self):
-#         self.rect.center = pygame.mouse.get_pos()
 
 
