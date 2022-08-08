@@ -22,6 +22,8 @@ class Game():
     def step(self):
         self.screen.fill((0, 51, 102))
         self.screen.blit(self.player.img, (self.player.x, self.player.y))
+        # self.screen.blit(self.player.img, self.player.img.get_rect(center=self.player.pos))
+        # self.screen.blit(self.enemy.img, self.enemy.img.get_rect(center=self.enemy.pos))
         self.screen.blit(self.enemy.img, (self.enemy.x, self.enemy.y))
         if len(self.bullets) > 0:
             for bullet  in self.bullets:
@@ -44,12 +46,13 @@ class Game():
                     break
         return is_collided
 
-class Bullet():
+class Bullet(pygame.Rect):
     def __init__(self):
         self.x = 510
         self.y = 375
-        self.speed = 2
         self.pos = (self.x, self.y)
+        self.speed = 2
+
 
         self.initial_process()
 
@@ -71,17 +74,19 @@ class Bullet():
                     self.pos[1] + self.dir[1] * self.speed)
 
 
-class Player():
+class Player(pygame.Rect):
     def __init__(self):
         self.img = pygame.image.load('star-wars.png')
         self.x = 475
         self.y = 350
+        self.pos = (self.x, self.y)
 
-class Enemy():
+class Enemy(pygame.Rect):
     def __init__(self):
         self.img = pygame.image.load('space-station.png')
         self.x = random.randint(0,900)
         self.y = random.randint(0,700)
+        self.pos = (self.x, self.y)
 
     def approach(self, player):
         dx = player.x - self.x
