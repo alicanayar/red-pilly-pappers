@@ -10,16 +10,14 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 PURPLE = (128, 0, 255)
-SCREEN_WIDTH = 1400 #1100
-SCREEN_HEIGHT = 800 #500
+SCREEN_WIDTH = 1100 #1100,1400
+SCREEN_HEIGHT = 500 #500,800
 
 
 class Entity(Sprite):
     def __init__(self):
         super().__init__()
         self.image = None
-        # pg.draw.circle(self.image, RED, (10, 10), 10)
-        # pg.draw.rect(self.image, RED, (0, 10, 20, 20))
         self.rect = None
         self.base_image = None
         self.base_center = None
@@ -41,12 +39,19 @@ class Entity(Sprite):
         dx = entity.rect.x - self.rect.x
         dy = entity.rect.y - self.rect.y
         rads = math.atan2(dx, -dy)
-        degs = math.degrees(rads)
-        rb = degs - self.heading
-        if rb < -180: rb += 360
-        elif rb > 180: rb -= 360
-        # print("degs:{} h:{}  rb:{}".format(degs, self.heading, rb))
-        return rb
+        bearing = math.degrees(rads)
+        rbearing = bearing - self.heading
+        if rbearing < -180: rbearing += 360
+        elif rbearing > 180: rbearing -= 360
+        # print("degs:{} h:{}  rb:{}".format(degs, self.heading, rbearing))
+        return rbearing
+
+    def get_bearing(self, entity):
+        dx = entity.rect.x - self.rect.x
+        dy = entity.rect.y - self.rect.y
+        rads = math.atan2(dx, -dy)
+        bearing = math.degrees(rads)
+        return bearing
 
 class Block(Entity):
     def __init__(self):
@@ -66,11 +71,12 @@ class Block(Entity):
         self.perception_list = pg.sprite.Group()
         self.range_list = pg.sprite.Group()
         self.heading = 0
+        self.damage = 0
 
     def move(self):
-        velocity_vec = Vector2()
-        velocity_vec.from_polar((self.speed, self.heading-90))
-        self.pos += velocity_vec
+        speed_vec = Vector2()
+        speed_vec.from_polar((self.speed, self.heading-90))
+        self.pos += speed_vec
 
     def update(self):
         super().update()
@@ -83,7 +89,6 @@ class Circle(Sprite):
     def __init__(self, color, R, rect):
         super().__init__()
         self.image = pg.Surface((R, R), pg.SRCALPHA)
-        # self.image.fill(WHITE)
         pg.draw.circle(self.image, color, (R/2, R/2), R/2, 1)
         self.rect = self.image.get_rect()
         self.rect_ = rect
@@ -115,17 +120,15 @@ class Player(Entity):
         self.gid = random.randint(0,1000)
         self.heading = 0
         self.speed = 0
+        self.damage = 0
 
     def set_radar_mode(self, mode, entity_id=None):
-        if mode == 0:
-            self.radar_mode = 0
-        elif mode == 1:
-            self.radar_mode = 1
+        if mode == 0: self.radar_mode = 0
+        elif mode == 1: self.radar_mode = 1
         elif mode == 2:
             self.radar_mode = 2
             self.tracked_entity_id = entity_id
-        else:
-            print("Error: invalid radar mode, -command options: 0,1,2  -entity id")
+        else: print("Error: invalid radar mode, -command options: 0,1,2  -entity id")
 
     def get_radar_mode(self):
         return self.radar_mode
@@ -139,57 +142,24 @@ class Bullet(Entity):
         super().__init__()
         self.image = pg.Surface([4, 10])
         self.image.fill(BLACK)
-        self.base_image = self.image
         self.rect = self.image.get_rect()
-        self.base_center = self.rect.center
         self.rect.x = current_x
         self.rect.y = current_y
         self.pos = (self.rect.x, self.rect.y)
-        self.x = current_x
-        self.y = current_y
-        self.speed = 1.1
+        self.speed = 1.05
         self.target = target
-        self.target_pos = (self.target.rect.x, self.target.rect.y)
-        self.guide()
         self.gid = random.randint(0,1000)
         self.owner_gid = gid
 
-    # def set_heading(self, heading):
-    #     heading = heading % 360
-    #     self.heading = heading
-    #     if heading > 0: heading = 360 - heading
-    #     else: heading = heading*(-1)
-    #     self.image = pg.transform.rotate(self.base_image, heading)
-    #     self.rect = self.image.get_rect(center=self.rect.center)
-
-    def guide(self):
-        self.target_pos = (self.target.rect.x, self.target.rect.y)
-        x_distance = self.target_pos[0] - self.x
-        y_distance = self.target_pos[1] - self.y
-        heading = math.atan2(y_distance, x_distance)
-        return heading
-        # print(heading)
-
-        # self.dx = math.cos(heading) * self.speed
-        # self.dy = math.sin(heading) * self.speed
-
     def move(self):
-        heading = self.guide()
         velocity_vec = Vector2()
-        velocity_vec.from_polar((self.speed, heading))
+        velocity_vec.from_polar((self.speed, self.get_bearing(self.target)-90))
         self.pos += velocity_vec
 
     def update(self):
-        # self.rect.center = self.pos
-        # self.guide()
         super().update()
         self.move()
         self.rect.center = self.pos
-        # self.y += self.dy
-        # self.x += self.dx
-        # self.rect.y = int(self.y)
-        # self.rect.x = int(self.x)
-
         if self.rect.x < 0 or self.rect.x > SCREEN_WIDTH or self.rect.y < 0 or self.rect.y > SCREEN_HEIGHT:
             self.kill()
 
@@ -237,11 +207,11 @@ class Game():
                 self.quit = True
             elif event.type == pg.KEYDOWN:
                 if event.key == pg.K_KP0 or event.key == pg.K_0:
-                    self.fire_to_target(0)
+                    self.fire_to_block(0)
                 if event.key == pg.K_KP1 or event.key == pg.K_1:
-                    self.fire_to_target(1)
+                    self.fire_to_block(1)
                 if event.key == pg.K_KP2 or event.key == pg.K_2:
-                    self.fire_to_target(2)
+                    self.fire_to_block(2)
                 if event.key == pg.K_KP3 or event.key == pg.K_3:
                     self.fire_to_player(3)
                 if event.key == pg.K_KP4 or event.key == pg.K_4:
@@ -260,22 +230,12 @@ class Game():
                     # rb = self.player.get_relativebearing(self.block_list.sprites()[0])
                     rb = self.block_list.sprites()[0].get_relativebearing(self.player)
                     print("rb:", rb)
-                if event.key == pg.K_w:
-                    self.block_list.sprites()[0].move(0,-5)
-                if event.key == pg.K_s:
-                    self.block_list.sprites()[0].move(0,5)
-                if event.key == pg.K_a:
-                    self.block_list.sprites()[0].move(-5,0)
-                if event.key == pg.K_d:
-                    self.block_list.sprites()[0].move(5,0)
-                if event.key == pg.K_m:
-                    self.block_list.sprites()[0].move(5,self.block_list.sprites()[0].heading)
 
             elif event.type == pg.MOUSEBUTTONDOWN:
                 pos = pg.mouse.get_pos()
                 self.block_list.sprites()[0].pos = pos
 
-    def fire_to_target(self, target_no):
+    def fire_to_block(self, target_no):
         target = self.player.entity_list[target_no][0]
         if target != 'skip' and target in self.player.perception_list and target in self.player.range_list:
             bullet = Bullet(self.player.rect.x, self.player.rect.y, target, self.player.gid)
@@ -308,6 +268,7 @@ class Game():
                     self.all_sprites_list.remove(bullet, block.circle, block.circle2)
                     i = self.player.entity_list.index((block, block.gid))
                     self.player.entity_list[i] = ('skip', -1)
+                    block.damage = 3
                 # Remove the bullet if it flies up off the screen
                 if bullet.rect.y < -10:
                     self.bullet_list.remove(bullet)
@@ -327,21 +288,10 @@ class Game():
                     self.bullet_list.remove(bullet)
                     self.all_sprites_list.remove(bullet)
 
-    def handle_block_bullets(self):
-        # Calculate mechanics for each bullet
-        for bullet in self.bullet_list:
-            # See if it hit a block
-            block_hit_list = pg.sprite.spritecollide(bullet, self.player_list, False)
-            # For each block hit, remove the bullet and add to the score
-            for block in block_hit_list:
+            if bullet.target.damage == 3:
                 self.bullet_list.remove(bullet)
                 self.all_sprites_list.remove(bullet)
-                # i = self.player.entity_list.index((block, block.gid))
-                # self.player.entity_list[i] = ('skip', -1)
-            # Remove the bullet if it flies up off the screen
-            if bullet.rect.y < -10:
-                self.bullet_list.remove(bullet)
-                self.all_sprites_list.remove(bullet)
+
 
     def handle_radar(self):
         self.player.perception_list.empty()
@@ -386,11 +336,11 @@ class Game():
         # --- Game logic
         # Call the update() method on all the sprites
         # self.listen_events()
-        self.a += 1
+        self.a += 0.2
         if self.a >= 360:
             self.a = 0
         self.block_list.sprites()[0].set_heading(self.a)
-        self.block_list.sprites()[0].set_speed(5)
+        self.block_list.sprites()[0].set_speed(1)
         self.block_list.sprites()[0].move()
         # if len(self.bullet_list) > 0:
         #     self.bullet_list.sprites()[0].set_heading(60)
@@ -401,17 +351,11 @@ class Game():
         self.fire_bullet()
         self.handle_bullets()
         self.render()
-        # print(self.player.entity_list)
-        # print("--",self.block_list.sprites())
-        # for sprit in self.block_list.sprites():
-        #     print(sprit.gid)
-        # self.quitter()
 
     def quitter(self):
         self.quit = False
         for entity in self.player.entity_list:
-            if entity[1] == -1:
-                self.quit = True
+            if entity[1] == -1: self.quit = True
             else:
                 self.quit = False
                 break
