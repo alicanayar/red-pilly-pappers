@@ -26,7 +26,24 @@ class Entity(Sprite):
         self.msg = None
         self.name = name
         self.engageCommand = False
+        self.perception_list = pg.sprite.Group()
+        self.range_list = pg.sprite.Group()
+        self.all_sprites_list = None
+        self.bullet_list = None
+        self.msg_box = None
+        self.radar_mode = 0
+        self.tracked_entity_id = None
 
+    def set_radar_mode(self, mode, entity_id=None):
+        if mode == 0: self.radar_mode = 0
+        elif mode == 1: self.radar_mode = 1
+        elif mode == 2:
+            self.radar_mode = 2
+            self.tracked_entity_id = entity_id
+        else: print("Error: invalid radar mode, -command options: 0,1,2  -entity id")
+
+    def get_radar_mode(self):
+        return self.radar_mode
 
     def set_heading(self, heading):
         heading = heading % 360
@@ -57,6 +74,31 @@ class Entity(Sprite):
         bearing = math.degrees(rads)
         return bearing
 
+    def fire_to_entity(self, target_gid):
+        for entity, gid in self.entity_list:
+            if gid == target_gid: target = entity
+        if target != 'skip' and target in self.perception_list and target in self.range_list:
+            bullet = Bullet(self.rect.x, self.rect.y, target, self)
+            self.all_sprites_list.add(bullet)
+            self.bullet_list.add(bullet)
+            print("fired to perceived target-",target_gid)
+        else: print("target-"+str(target_gid)+"not perceived")
+
+    def send_message(self, receiver, subject, text):
+        msg = {}
+        msg.update({'sender':self, 'receiver':receiver, 'subject':subject, 'text':text})
+        self.msg_box.append(msg)
+
+    def process_message(self, msg): # sender subject text
+        sender = msg['sender']
+        subject = msg['subject']
+        text = msg['text']
+        print(">>>>>>>>> {} send {} message to {}".format(sender.name,text,self.name))
+        self.myEnemyGlobalID = subject.gid
+        self.commanderID = sender.gid
+        self.engageCommand = True
+
+
 class Block(Entity):
     def __init__(self, name):
         super().__init__(name)
@@ -72,21 +114,14 @@ class Block(Entity):
         self.circle = Circle(RED, 300, self.rect)
         self.circle2 = Circle(RED, 100, self.rect)
         self.gid = random.randint(0,1000)
-        self.perception_list = pg.sprite.Group()
-        self.range_list = pg.sprite.Group()
         self.heading = 0
         self.damage = 0
+        self.entity_list = []
 
     def move(self):
         speed_vec = Vector2()
         speed_vec.from_polar((self.speed, self.heading-90))
         self.pos += speed_vec
-
-    def process_message(self, msg): # sender subject text
-        sender = msg['sender']
-        subject = msg['subject']
-        text = msg['text']
-        print(">>>>>>>>> {} send {} message to {}".format(sender.name,text,self.name))
 
     def update(self):
         super().update()
@@ -125,35 +160,11 @@ class Player(Entity):
 
         self.circle = Circle(BLUE, 400, self.rect)
         self.circle2 = Circle(BLUE, 300, self.rect)
-        self.radar_mode = 0
-        self.tracked_entity_id = None
-        self.perception_list = pg.sprite.Group()
-        self.range_list = pg.sprite.Group()
         self.entity_list = []
         self.gid = random.randint(0,1000)
         self.heading = 0
         self.speed = 0
         self.damage = 0
-
-    def set_radar_mode(self, mode, entity_id=None):
-        if mode == 0: self.radar_mode = 0
-        elif mode == 1: self.radar_mode = 1
-        elif mode == 2:
-            self.radar_mode = 2
-            self.tracked_entity_id = entity_id
-        else: print("Error: invalid radar mode, -command options: 0,1,2  -entity id")
-
-    def get_radar_mode(self):
-        return self.radar_mode
-
-    def process_message(self, msg): # sender subject text
-        sender = msg['sender']
-        subject = msg['subject']
-        text = msg['text']
-        print(">>>>>>>>> {} send {} message to {}".format(sender.name,text,self.name))
-        self.myEnemyGlobalID = subject.gid
-        self.commanderID = sender.gid
-        self.engageCommand = True
 
     def update(self):
         super().update()
@@ -163,8 +174,8 @@ class Player(Entity):
 
 
 class Bullet(Entity):
-    def __init__(self, current_x, current_y, target, gid):
-        super().__init__()
+    def __init__(self, current_x, current_y, target, owner, name=None):
+        super().__init__(name)
         self.image = pg.Surface([4, 10])
         self.image.fill(BLACK)
         self.rect = self.image.get_rect()
@@ -174,7 +185,7 @@ class Bullet(Entity):
         self.speed = 1.05
         self.target = target
         self.gid = random.randint(0,1000)
-        self.owner_gid = gid
+        self.owner = owner
 
     def move(self):
         velocity_vec = Vector2()
@@ -196,21 +207,32 @@ class Game():
         self.all_sprites_list = pg.sprite.Group()
         self.player_list = pg.sprite.Group()
         self.block_list = pg.sprite.Group()
+        self.entity_list = pg.sprite.Group()
         self.bullet_list = pg.sprite.Group()
         self.block_number = 3
+        self.msg_box = []
         self.player = Player('f'+str(0))
+        self.player.msg_box = self.msg_box
         self.player_list.add(self.player)
 
         self.init_blocks()
+        self.entity_list.add(self.player_list, self.block_list)
         self.all_sprites_list.add(self.player.circle, self.player.circle2, self.player)
         self.clock = pg.time.Clock()
         self.quit = False
         self.a = 0
-        self.msg_box = []
+
+
+        self.player.all_sprites_list = self.all_sprites_list
+        self.player.bullet_list = self.bullet_list
 
     def init_blocks(self):
         for i in range(self.block_number):
             block = Block('h'+str(i))
+            block.msg_box = self.msg_box
+            block.all_sprites_list = self.all_sprites_list
+            block.bullet_list = self.bullet_list
+            block.entity_list.append((self.player, self.player.gid))
             self.block_list.add(block)
             self.all_sprites_list.add(block, block.circle, block.circle2)
             self.player.entity_list.append((block, block.gid))
@@ -233,17 +255,17 @@ class Game():
                 self.quit = True
             elif event.type == pg.KEYDOWN:
                 if event.key == pg.K_KP0 or event.key == pg.K_0:
-                    self.fire_to_block(0)
+                    self.player.fire_to_entity(self.block_list.sprites()[0].gid)
                 if event.key == pg.K_KP1 or event.key == pg.K_1:
-                    self.fire_to_block(1)
+                    self.player.fire_to_entity(self.block_list.sprites()[1].gid)
                 if event.key == pg.K_KP2 or event.key == pg.K_2:
-                    self.fire_to_block(2)
+                    self.player.fire_to_entity(self.block_list.sprites()[2].gid)
                 if event.key == pg.K_KP3 or event.key == pg.K_3:
-                    self.fire_to_player(3)
+                    self.block_list.sprites()[0].fire_to_block(self.player.gid)
                 if event.key == pg.K_KP4 or event.key == pg.K_4:
-                    self.fire_to_player(4)
+                    self.block_list.sprites()[1].fire_to_block(self.player.gid)
                 if event.key == pg.K_KP5 or event.key == pg.K_5:
-                    self.fire_to_player(5)
+                    self.block_list.sprites()[2].fire_to_block(self.player.gid)
                 if event.key == pg.K_RIGHT:
                     self.player.set_heading(30)
                 if event.key == pg.K_LEFT:
@@ -257,62 +279,26 @@ class Game():
                     rb = self.block_list.sprites()[0].get_relativebearing(self.player)
                     print("rb:", rb)
                 if event.key == pg.K_m:
-                    self.send_message(sender=self.block_list.sprites()[0], receiver=self.player, subject=self.block_list.sprites()[1], text='CLOSERADAR')
-                    self.send_message(sender=self.block_list.sprites()[2], receiver=self.block_list.sprites()[1], subject=self.player, text='ENGAGE')
+                    self.player.send_message(receiver=self.block_list.sprites()[2], subject=self.block_list.sprites()[1], text='CLOSERADAR')
+                    # self.send_message(sender=self.block_list.sprites()[2], receiver=self.block_list.sprites()[1], subject=self.player, text='ENGAGE')
 
             elif event.type == pg.MOUSEBUTTONDOWN:
                 pos = pg.mouse.get_pos()
                 self.block_list.sprites()[0].pos = pos
 
-    def fire_to_block(self, target_no):
-        target = self.player.entity_list[target_no][0]
-        if target != 'skip' and target in self.player.perception_list and target in self.player.range_list:
-            bullet = Bullet(self.player.rect.x, self.player.rect.y, target, self.player.gid)
-            self.all_sprites_list.add(bullet)
-            self.bullet_list.add(bullet)
-            print("fired to perceived target-",target_no)
-        else:
-            print("target-"+str(target_no)+"not perceived")
-
-    def fire_to_player(self, striker_no):
-        striker = self.player.entity_list[striker_no-3][0]
-        if striker != 'skip' and len(self.player_list)!=0:
-            if self.player in striker.perception_list and self.player in striker.range_list:
-                bullet = Bullet(striker.rect.x, striker.rect.y, self.player.rect.x, self.player.rect.y, striker.gid)
-                self.all_sprites_list.add(bullet)
-                self.bullet_list.add(bullet)
-                print("fired striker-",striker_no-3)
-        else:
-            print("striker-"+str(striker_no-3)+" destroyed")
-
     def handle_bullets(self):
         # Calculate mechanics for each bullet
         for bullet in self.bullet_list:
-            if bullet.owner_gid == self.player.gid:
-                # See if it hit a block
-                block_hit_list = pg.sprite.spritecollide(bullet, self.block_list, True)
-                # For each block hit, remove the bullet and add to the score
-                for block in block_hit_list:
+            hit_entity_list = pg.sprite.spritecollide(bullet, self.entity_list, False)
+            for hit_entity in hit_entity_list:
+                if bullet.owner.gid != hit_entity.gid:
                     self.bullet_list.remove(bullet)
-                    self.all_sprites_list.remove(bullet, block.circle, block.circle2)
-                    i = self.player.entity_list.index((block, block.gid))
-                    self.player.entity_list[i] = ('skip', -1)
-                    block.damage = 3
-                # Remove the bullet if it flies up off the screen
-                if bullet.rect.y < -10:
-                    self.bullet_list.remove(bullet)
-                    self.all_sprites_list.remove(bullet)
-            else:
-                # See if it hit a block
-                block_hit_list = pg.sprite.spritecollide(bullet, self.player_list, True)
-                # For each block hit, remove the bullet and add to the score
-                for block in block_hit_list:
-                    self.quit = True
-                    self.bullet_list.remove(bullet)
-                    self.all_sprites_list.remove(bullet)
-                    # i = self.player.entity_list.index((block, block.gid))
-                    # self.player.entity_list[i] = ('skip', -1)
-                # Remove the bullet if it flies up off the screen
+                    self.block_list.remove(hit_entity)
+                    self.all_sprites_list.remove(bullet, hit_entity, hit_entity.circle, hit_entity.circle2)
+                    i = bullet.owner.entity_list.index((hit_entity, hit_entity.gid))
+                    bullet.owner.entity_list[i] = ('skip', -1)
+                    hit_entity.damage = 3
+
                 if bullet.rect.y < -10:
                     self.bullet_list.remove(bullet)
                     self.all_sprites_list.remove(bullet)
@@ -321,24 +307,18 @@ class Game():
                 self.bullet_list.remove(bullet)
                 self.all_sprites_list.remove(bullet)
 
-
     def handle_radar(self):
-        self.player.perception_list.empty()
-        perception_list = pg.sprite.spritecollide(self.player.circle, self.block_list, False)
-        if len(perception_list) > 0:
-            for perceived in perception_list:
-                rb = self.player.get_relativebearing(perceived)
-                if rb < 60 and rb > -60:
-                    self.player.perception_list.add(perceived)
-
-        for block in self.block_list:
-            block.perception_list.empty()
-            perception_list = pg.sprite.spritecollide(block.circle, self.player_list, False)
-            if len(perception_list) > 0:
-                for perceived in perception_list:
-                    rb = block.get_relativebearing(perceived)
-                    if rb < 60 and rb > -60:
-                        block.perception_list.add(perceived)
+        # Calculate mechanics for each radar
+        for entity in self.entity_list:
+            entity.perception_list.empty()
+            if entity.radar_mode == 1 or entity.radar_mode == 2:
+                perception_list = pg.sprite.spritecollide(entity.circle, self.entity_list, False)
+                if len(perception_list) > 0:
+                    for perceived in perception_list:
+                        if perceived.gid != entity.gid:
+                            rb = entity.get_relativebearing(perceived)
+                            if rb < 60 and rb > -60:
+                                entity.perception_list.add(perceived)
 
     def handle_range(self):
         self.player.range_list.empty()
@@ -361,11 +341,6 @@ class Game():
                 receiver.process_message(msg)
             self.msg_box.clear()
 
-    def send_message(self, sender, receiver, subject, text):
-        msg = {}
-        msg.update({'sender':sender, 'receiver':receiver, 'subject':subject, 'text':text})
-        self.msg_box.append(msg)
-
     def render(self):
         self.screen.fill(WHITE)
         self.all_sprites_list.draw(self.screen)
@@ -383,6 +358,7 @@ class Game():
         self.block_list.sprites()[0].set_heading(self.a)
         self.block_list.sprites()[0].set_speed(1)
         self.block_list.sprites()[0].move()
+        self.player.set_radar_mode(1)
         # if len(self.bullet_list) > 0:
         #     self.bullet_list.sprites()[0].set_heading(60)
         self.all_sprites_list.update()
@@ -394,6 +370,7 @@ class Game():
         self.handle_bullets()
         self.handle_message()
         self.render()
+        # print(self.block_list)
 
     def quitter(self):
         self.quit = False
