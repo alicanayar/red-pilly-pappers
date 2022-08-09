@@ -10,12 +10,12 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 PURPLE = (128, 0, 255)
-SCREEN_WIDTH = 1100 #1100,1400
-SCREEN_HEIGHT = 500 #500,800
+SCREEN_WIDTH = 1400 #1100,1400
+SCREEN_HEIGHT = 800 #500,800
 
 
 class Entity(Sprite):
-    def __init__(self):
+    def __init__(self, name):
         super().__init__()
         self.image = None
         self.rect = None
@@ -23,6 +23,10 @@ class Entity(Sprite):
         self.base_center = None
         self.heading = None
         self.speed = None
+        self.msg = None
+        self.name = name
+        self.engageCommand = False
+
 
     def set_heading(self, heading):
         heading = heading % 360
@@ -54,8 +58,8 @@ class Entity(Sprite):
         return bearing
 
 class Block(Entity):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, name):
+        super().__init__(name)
         self.image = pg.Surface([20, 30], pg.SRCALPHA)
         pg.draw.circle(self.image, RED, (10, 10), 10)
         pg.draw.rect(self.image, RED, (0, 10, 20, 20))
@@ -78,11 +82,20 @@ class Block(Entity):
         speed_vec.from_polar((self.speed, self.heading-90))
         self.pos += speed_vec
 
+    def process_message(self, msg): # sender subject text
+        sender = msg['sender']
+        subject = msg['subject']
+        text = msg['text']
+        print(">>>>>>>>> {} send {} message to {}".format(sender.name,text,self.name))
+
     def update(self):
         super().update()
         self.rect.center = self.pos
         self.circle.rect_ = self.rect
         self.circle2.rect_ = self.rect
+
+    def play(self):
+        pass
 
 
 class Circle(Sprite):
@@ -98,8 +111,8 @@ class Circle(Sprite):
 
 
 class Player(Entity):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, name):
+        super().__init__(name)
         self.image = pg.Surface([20, 30], pg.SRCALPHA)
         pg.draw.circle(self.image, BLUE, (10, 10), 10)
         pg.draw.rect(self.image, BLUE, (0, 10, 20, 20))
@@ -133,8 +146,20 @@ class Player(Entity):
     def get_radar_mode(self):
         return self.radar_mode
 
+    def process_message(self, msg): # sender subject text
+        sender = msg['sender']
+        subject = msg['subject']
+        text = msg['text']
+        print(">>>>>>>>> {} send {} message to {}".format(sender.name,text,self.name))
+        self.myEnemyGlobalID = subject.gid
+        self.commanderID = sender.gid
+        self.engageCommand = True
+
     def update(self):
         super().update()
+
+    def play(self):
+        pass
 
 
 class Bullet(Entity):
@@ -173,7 +198,7 @@ class Game():
         self.block_list = pg.sprite.Group()
         self.bullet_list = pg.sprite.Group()
         self.block_number = 3
-        self.player = Player()
+        self.player = Player('f'+str(0))
         self.player_list.add(self.player)
 
         self.init_blocks()
@@ -181,10 +206,11 @@ class Game():
         self.clock = pg.time.Clock()
         self.quit = False
         self.a = 0
+        self.msg_box = []
 
     def init_blocks(self):
         for i in range(self.block_number):
-            block = Block()
+            block = Block('h'+str(i))
             self.block_list.add(block)
             self.all_sprites_list.add(block, block.circle, block.circle2)
             self.player.entity_list.append((block, block.gid))
@@ -230,6 +256,9 @@ class Game():
                     # rb = self.player.get_relativebearing(self.block_list.sprites()[0])
                     rb = self.block_list.sprites()[0].get_relativebearing(self.player)
                     print("rb:", rb)
+                if event.key == pg.K_m:
+                    self.send_message(sender=self.block_list.sprites()[0], receiver=self.player, subject=self.block_list.sprites()[1], text='CLOSERADAR')
+                    self.send_message(sender=self.block_list.sprites()[2], receiver=self.block_list.sprites()[1], subject=self.player, text='ENGAGE')
 
             elif event.type == pg.MOUSEBUTTONDOWN:
                 pos = pg.mouse.get_pos()
@@ -325,6 +354,18 @@ class Game():
                 for ranged in range_list:
                     block.range_list.add(ranged)
 
+    def handle_message(self):
+        if len(self.msg_box) > 0:
+            for msg in self.msg_box:
+                receiver = msg['receiver']
+                receiver.process_message(msg)
+            self.msg_box.clear()
+
+    def send_message(self, sender, receiver, subject, text):
+        msg = {}
+        msg.update({'sender':sender, 'receiver':receiver, 'subject':subject, 'text':text})
+        self.msg_box.append(msg)
+
     def render(self):
         self.screen.fill(WHITE)
         self.all_sprites_list.draw(self.screen)
@@ -347,9 +388,11 @@ class Game():
         self.all_sprites_list.update()
         self.handle_radar()
         self.handle_range()
+
         # print(self.player.perception_list)
         self.fire_bullet()
         self.handle_bullets()
+        self.handle_message()
         self.render()
 
     def quitter(self):
