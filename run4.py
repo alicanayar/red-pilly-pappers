@@ -10,8 +10,8 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 PURPLE = (128, 0, 255)
-SCREEN_WIDTH = 1400 #1100,1400
-SCREEN_HEIGHT = 800 #500,800
+SCREEN_WIDTH = 1300 #1100,1400
+SCREEN_HEIGHT = 700 #500,800
 
 
 class Entity(Sprite):
@@ -19,10 +19,12 @@ class Entity(Sprite):
         super().__init__()
         self.image = None
         self.rect = None
+        self.pos = None
         self.base_image = None
         self.base_center = None
         self.heading = None
         self.speed = None
+        self.damage = None
         self.msg = None
         self.name = name
         self.engageCommand = False
@@ -33,6 +35,8 @@ class Entity(Sprite):
         self.msg_box = None
         self.radar_mode = 0
         self.tracked_entity_id = None
+        self.subject_gid = None
+        self.subject = None
 
     def set_radar_mode(self, mode, entity_id=None):
         if mode == 0: self.radar_mode = 0
@@ -53,8 +57,14 @@ class Entity(Sprite):
         self.image = pg.transform.rotate(self.base_image, heading)
         self.rect = self.image.get_rect(center=self.rect.center)
 
+    def get_heading(self):
+        return self.heading
+
     def set_speed(self, speed):
         self.speed = speed
+
+    def get_speed(self):
+        return self.speed
 
     def get_relativebearing(self, entity):
         dx = entity.rect.x - self.rect.x
@@ -76,13 +86,15 @@ class Entity(Sprite):
 
     def fire_to_entity(self, target_gid):
         for entity, gid in self.entity_list:
-            if gid == target_gid: target = entity
-        if target != 'skip' and target in self.perception_list and target in self.range_list:
-            bullet = Bullet(self.rect.x, self.rect.y, target, self)
-            self.all_sprites_list.add(bullet)
-            self.bullet_list.add(bullet)
-            print("fired to perceived target-",target_gid)
-        else: print("target-"+str(target_gid)+"not perceived")
+            if gid == target_gid:
+                target = entity
+                if target != 'skip' and target in self.perception_list and target in self.range_list:
+                    bullet = Bullet(self.rect.x, self.rect.y, target, self)
+                    self.all_sprites_list.add(bullet)
+                    self.bullet_list.add(bullet)
+                    print("fired to perceived target-",target_gid)
+                else: print("target-"+str(target_gid)+"not perceived")
+                break
 
     def send_message(self, receiver, subject, text):
         msg = {}
@@ -98,6 +110,12 @@ class Entity(Sprite):
         self.commanderID = sender.gid
         self.engageCommand = True
 
+    def get_distance(self, entity):
+        return math.dist(self.pos, entity.pos)
+
+    def get_damage(self, entity):
+        return entity.damage
+
 
 class Block(Entity):
     def __init__(self, name):
@@ -111,17 +129,29 @@ class Block(Entity):
         self.pos = (self.rect.x, self.rect.y)
         self.base_image = self.image
         self.base_center = self.rect.center
-        self.circle = Circle(RED, 300, self.rect)
-        self.circle2 = Circle(RED, 100, self.rect)
+        self.circle = Circle(RED, 500, self.rect)
+        self.circle2 = Circle(RED, 300, self.rect)
         self.gid = random.randint(0,1000)
-        self.heading = 0
+        # self.heading = 0
         self.damage = 0
         self.entity_list = []
+        self.min_distance = 800
+        self.target_perceived = False
+        self.fire_completed = False
+        self.timer_is_started = False
+        self.fire_counter = 0
+        self.fire_interval = 300
+        self.change_heading_counter = 0
+        self.change_heading_interval = 500
 
     def move(self):
         speed_vec = Vector2()
         speed_vec.from_polar((self.speed, self.heading-90))
         self.pos += speed_vec
+        if self.pos[0] < 20: self.pos[0] = 20
+        elif self.pos[0] > SCREEN_WIDTH-20: self.pos[0] = SCREEN_WIDTH-20
+        if self.pos[1] < 20: self.pos[1] = 20
+        elif self.pos[1] > SCREEN_HEIGHT-20: self.pos[1] = SCREEN_HEIGHT-20
 
     def update(self):
         super().update()
@@ -130,7 +160,46 @@ class Block(Entity):
         self.circle2.rect_ = self.rect
 
     def play(self):
-        pass
+        if self.get_radar_mode() == 0:
+            self.set_radar_mode(1)
+        if self.get_speed() == 0 or self.get_speed() == None:
+            self.set_speed(1)
+        if self.get_heading() == None:
+            self.set_heading(180)
+
+        self.subject = None
+        self.min_distance = 800
+        self.target_perceived = False
+        for perceived_entity in self.perception_list:
+            if self.get_damage(perceived_entity) != 3:
+                self.target_perceived = False
+                if self.get_distance(perceived_entity) < self.min_distance:
+                    self.subject = perceived_entity
+                    self.min_distance = self.get_distance(perceived_entity)
+
+        if self.subject != None and self.fire_completed == False:
+            if self.subject in self.range_list:
+                self.fire_to_entity(self.subject.gid)
+                self.timer_is_started = True
+                self.fire_completed = True
+
+        if self.timer_is_started == True:
+            self.fire_counter += 1
+            if self.fire_counter > self.fire_interval:
+                self.fire_completed = False
+                self.timer_is_started = False
+                self.fire_counter = 0
+
+        if self.target_perceived == False:
+            self.change_heading_counter += 1
+            if self.change_heading_counter > self.change_heading_interval:
+                self.set_heading(self.get_heading()-160+random.gauss(25,20))
+                self.change_heading_counter = 0
+
+        self.move()
+
+
+
 
 
 class Circle(Sprite):
@@ -157,7 +226,6 @@ class Player(Entity):
         self.pos = (self.rect.x, self.rect.y)
         self.base_image = self.image
         self.base_center = self.rect.center
-
         self.circle = Circle(BLUE, 400, self.rect)
         self.circle2 = Circle(BLUE, 300, self.rect)
         self.entity_list = []
@@ -182,7 +250,7 @@ class Bullet(Entity):
         self.rect.x = current_x
         self.rect.y = current_y
         self.pos = (self.rect.x, self.rect.y)
-        self.speed = 1.05
+        self.speed = 1.05 # 1.05
         self.target = target
         self.gid = random.randint(0,1000)
         self.owner = owner
@@ -222,7 +290,6 @@ class Game():
         self.quit = False
         self.a = 0
 
-
         self.player.all_sprites_list = self.all_sprites_list
         self.player.bullet_list = self.bullet_list
 
@@ -261,11 +328,11 @@ class Game():
                 if event.key == pg.K_KP2 or event.key == pg.K_2:
                     self.player.fire_to_entity(self.block_list.sprites()[2].gid)
                 if event.key == pg.K_KP3 or event.key == pg.K_3:
-                    self.block_list.sprites()[0].fire_to_block(self.player.gid)
+                    self.block_list.sprites()[0].fire_to_entity(self.player.gid)
                 if event.key == pg.K_KP4 or event.key == pg.K_4:
-                    self.block_list.sprites()[1].fire_to_block(self.player.gid)
+                    self.block_list.sprites()[1].fire_to_entity(self.player.gid)
                 if event.key == pg.K_KP5 or event.key == pg.K_5:
-                    self.block_list.sprites()[2].fire_to_block(self.player.gid)
+                    self.block_list.sprites()[2].fire_to_entity(self.player.gid)
                 if event.key == pg.K_RIGHT:
                     self.player.set_heading(30)
                 if event.key == pg.K_LEFT:
@@ -311,14 +378,12 @@ class Game():
         # Calculate mechanics for each radar
         for entity in self.entity_list:
             entity.perception_list.empty()
-            if entity.radar_mode == 1 or entity.radar_mode == 2:
-                perception_list = pg.sprite.spritecollide(entity.circle, self.entity_list, False)
-                if len(perception_list) > 0:
-                    for perceived in perception_list:
-                        if perceived.gid != entity.gid:
-                            rb = entity.get_relativebearing(perceived)
-                            if rb < 60 and rb > -60:
-                                entity.perception_list.add(perceived)
+            perception_list = pg.sprite.spritecollide(entity.circle, self.entity_list, False)
+            if (entity.radar_mode == 1 or entity.radar_mode == 2) and len(perception_list) > 0:
+                for perceived in perception_list:
+                    rb = entity.get_relativebearing(perceived)
+                    if (perceived.gid != entity.gid) and (rb < 60 and rb > -60):
+                        entity.perception_list.add(perceived)
 
     def handle_range(self):
         self.player.range_list.empty()
@@ -352,25 +417,26 @@ class Game():
         # --- Game logic
         # Call the update() method on all the sprites
         # self.listen_events()
-        self.a += 0.2
-        if self.a >= 360:
-            self.a = 0
-        self.block_list.sprites()[0].set_heading(self.a)
-        self.block_list.sprites()[0].set_speed(1)
-        self.block_list.sprites()[0].move()
-        self.player.set_radar_mode(1)
-        # if len(self.bullet_list) > 0:
-        #     self.bullet_list.sprites()[0].set_heading(60)
+        # self.a += 0.2
+        # if self.a >= 360:
+        #     self.a = 0
+        # self.block_list.sprites()[0].set_heading(self.a)
+        # self.block_list.sprites()[0].set_speed(1)
+        # self.block_list.sprites()[0].move()
+        # self.player.set_radar_mode(1)
+        for block in self.block_list:
+            block.play()
+        # self.block_list.sprites()[0].set_radar_mode(1)
         self.all_sprites_list.update()
         self.handle_radar()
         self.handle_range()
 
         # print(self.player.perception_list)
-        self.fire_bullet()
+        # self.fire_bullet()
         self.handle_bullets()
         self.handle_message()
         self.render()
-        # print(self.block_list)
+        # print(self.block_list.sprites()[0].entity_list, self.block_list.sprites()[0].perception_list, self.block_list.sprites()[0].range_list)
 
     def quitter(self):
         self.quit = False
@@ -390,6 +456,4 @@ if __name__ == "__main__":
         while not game.quit:
             game.execute()
     pg.quit()
-
-
 
