@@ -34,17 +34,21 @@ class Entity(Sprite):
         self.bullet_list = None
         self.msg_box = None
         self.radar_mode = 0
-        self.tracked_entity_id = None
+        self.tracked_entity = None
         self.subject_gid = None
         self.subject = None
 
-    def set_radar_mode(self, mode, entity_id=None):
-        if mode == 0: self.radar_mode = 0
-        elif mode == 1: self.radar_mode = 1
+    def set_radar_mode(self, mode, entity=None):
+        if mode == 0:
+            self.radar_mode = 0
+            self.tracked_entity = None
+        elif mode == 1:
+            self.radar_mode = 1
+            self.tracked_entity = None
         elif mode == 2:
             self.radar_mode = 2
-            self.tracked_entity_id = entity_id
-        else: print("Error: invalid radar mode, -command options: 0,1,2  -entity id")
+            self.tracked_entity = entity
+        else: print("Error: invalid radar mode, -command options: 0,1,2  -entity")
 
     def get_radar_mode(self):
         return self.radar_mode
@@ -84,12 +88,19 @@ class Entity(Sprite):
         bearing = math.degrees(rads)
         return bearing
 
-    def fire_to_entity(self, target_gid):
+    def fire_to_entity(self, seeker, target_gid):
         for entity, gid in self.entity_list:
             if gid == target_gid:
                 target = entity
                 if target != 'skip' and target in self.perception_list and target in self.range_list:
-                    bullet = Bullet(self.rect.x, self.rect.y, target, self)
+                    if seeker == 4:
+                        bullet = Bullet(self.rect.x, self.rect.y, target, self)
+                    elif seeker == 5:
+                        bullet = ARM(self.rect.x, self.rect.y, target, self)
+                    elif seeker == 6:
+                        bullet = Maverick(self.rect.x, self.rect.y, target, self)
+                    else:
+                        bullet = Bullet(self.rect.x, self.rect.y, target, self)
                     self.all_sprites_list.add(bullet)
                     self.bullet_list.add(bullet)
                     print("fired to perceived target-",target_gid)
@@ -116,6 +127,9 @@ class Entity(Sprite):
     def get_damage(self, entity):
         return entity.damage
 
+    def get_track_entity(self):
+        return self.tracked_entity
+
 
 class Block(Entity):
     def __init__(self, name):
@@ -130,7 +144,7 @@ class Block(Entity):
         self.base_image = self.image
         self.base_center = self.rect.center
         self.circle = Circle(RED, 500, self.rect)
-        self.circle2 = Circle(RED, 300, self.rect)
+        self.circle2 = Circle(RED, 400, self.rect)
         self.gid = random.randint(0,1000)
         # self.heading = 0
         self.damage = 0
@@ -159,7 +173,7 @@ class Block(Entity):
         self.circle.rect_ = self.rect
         self.circle2.rect_ = self.rect
 
-    def play(self):
+    def behave(self):
         if self.get_radar_mode() == 0:
             self.set_radar_mode(1)
         if self.get_speed() == 0 or self.get_speed() == None:
@@ -179,7 +193,7 @@ class Block(Entity):
 
         if self.subject != None and self.fire_completed == False:
             if self.subject in self.range_list:
-                self.fire_to_entity(self.subject.gid)
+                self.fire_to_entity(5, self.subject.gid)
                 self.timer_is_started = True
                 self.fire_completed = True
 
@@ -234,17 +248,108 @@ class Player(Entity):
         self.speed = 0
         self.damage = 0
 
+        self.set_radar_search = True
+        self.ARM_detected = False
+        self.search_counter = 0
+        self.fire_completed = False
+        self.search_time = 1
+        self.min_distance = 800
+        self.is_tracked = False
+        self.timer_is_started = False
+        self.fire_counter = 0
+        self.fire_interval = 50
+        self.close_radar_timer_is_started = False
+        self.radar_off_interval = 45
+        self.radar_off_counter = 0
+
+
     def update(self):
         super().update()
 
-    def play(self):
-        pass
+    def behave(self):
+        if self.get_damage(self) != 3:
+            if(self.set_radar_search == True and self.get_radar_mode() != 1 and self.ARM_detected == False):
+                self.set_radar_mode(1)
+                self.set_radar_search = False
+                self.search_counter = 0
+
+            self.search_counter += 1
+            if(self.fire_completed == False and self.search_counter > self.search_time):
+
+                self.subject = None
+                self.min_distance = 800
+                for perceived_entity in self.perception_list:
+                    if perceived_entity in self.range_list:
+                        perceived_ranged_entity = perceived_entity
+                        if self.get_damage(perceived_ranged_entity) != 3:
+                            if(self.get_distance(perceived_ranged_entity) < self.min_distance):
+                                self.subject = perceived_ranged_entity
+                                self.min_distance = self.get_distance(perceived_ranged_entity)
+
+                if(self.subject != None and self.ARM_detected == False):
+                    if(self.get_radar_mode() != 2):
+                        self.set_radar_mode(2, self.subject)
+                    elif(self.get_radar_mode() == 2 and self.get_track_entity() != self.subject):
+                        self.set_radar_mode(2, self.subject)
+                elif(self.get_radar_mode() != 1 and self.ARM_detected == False):
+                    self.set_radar_search = True
+
+                self.is_tracked = False
+                if self.get_track_entity() == self.subject:
+                    self.is_tracked = True
+
+                if(self.subject != None and self.is_tracked == True):
+                    self.fire_to_entity(4, self.subject.gid)
+                    self.timer_is_started = True
+                    self.fire_completed = True
+
+            if(self.timer_is_started == True):
+                self.fire_counter += 1
+                if(self.fire_counter > self.fire_interval):
+                    self.fire_completed = False
+                    self.timer_is_started = False
+                    self.fire_counter = 0
+
+            if(self.ARM_detected == False):
+                # entityInstanceListObject = hvlruleutil.EntityInstanceList()
+                # self.myRuleHelper.getAllMissileEntityInstances(entityInstanceListObject)
+                # self.myRuleHelper.eliminateWRTAcquisition(entityInstanceListObject, True)
+                # size = entityInstanceListObject.getEntityInstanceSize()
+                # minMissileDistance = 100000
+                # self.subjectMissileID = 0
+                # if(size > 0):
+                #     for i in range(0, size):
+                #         self.potentialMissileId = entityInstanceListObject.getEntityInstanceGlobalIdAtIndex(i)
+                #         self.missileDIS = self.myRuleHelper.getSpecifiedEntityDISCode(self.potentialMissileId)
+                #         self.missileDistance = self.myRuleHelper.computeDistanceBetweenEntities(self.myEntityInstanceGlobalId, self.potentialMissileId)
+                #         if(self.missileDIS.Domain == 4):
+                #             self.myRuleHelper.sendCommMessageToEveryone(self.potentialMissileId, 'CLOSERADAR')
+                #             self.ARMDetected = True
+                #             self.closeRadarTimerIsStarted = True
+                #             self.myRuleHelper.setRadarMode(0, self.myEntityInstanceGlobalId)
+                #             break
+                #         elif(self.missileDIS.Domain != 1 and self.missileDIS.Domain != 4 and self.missileDistance < minMissileDistance):
+                #             self.subjectMissileID = self.potentialMissileId
+                #             minMissileDistance = self.missileDistance
+                #
+                #     if(self.subjectMissileID != self.previousMissileId):
+                #         self.myRuleHelper.sendCommMessageToEveryone(self.subjectMissileID, 'TURN')
+                #         self.previousMissileId = self.subjectMissileID
+                pass
+
+            if(self.close_radar_timer_is_started == True):
+                self.radar_off_counter += 1
+                if(self.radar_off_counter > self.radar_off_interval):
+                    self.ARM_detected = False
+                    self.close_radar_timer_is_started = False
+                    self.radar_off_counter = 0
+
 
 
 class Bullet(Entity):
     def __init__(self, current_x, current_y, target, owner, name=None):
         super().__init__(name)
-        self.image = pg.Surface([4, 10])
+        self.image = pg.Surface([2, 5])
         self.image.fill(BLACK)
         self.rect = self.image.get_rect()
         self.rect.x = current_x
@@ -254,6 +359,10 @@ class Bullet(Entity):
         self.target = target
         self.gid = random.randint(0,1000)
         self.owner = owner
+        self.domain = 'generic'
+
+    def get_domain(self):
+        return self.domain
 
     def move(self):
         velocity_vec = Vector2()
@@ -266,6 +375,28 @@ class Bullet(Entity):
         self.rect.center = self.pos
         if self.rect.x < 0 or self.rect.x > SCREEN_WIDTH or self.rect.y < 0 or self.rect.y > SCREEN_HEIGHT:
             self.kill()
+
+class Maverick(Bullet):
+    def __init__(self, current_x, current_y, target, owner, name=None):
+        super().__init__(current_x, current_y, target, owner, name=None)
+        self.image = pg.Surface([4, 10])
+        self.image.fill(BLACK)
+        self.rect = self.image.get_rect()
+        self.rect.x = current_x
+        self.rect.y = current_y
+        self.pos = (self.rect.x, self.rect.y)
+        self.domain = 'electro-optic'
+
+class ARM(Bullet):
+    def __init__(self, current_x, current_y, target, owner, name=None):
+        super().__init__(current_x, current_y, target, owner, name=None)
+        self.image = pg.Surface([5, 20])
+        self.image.fill(BLACK)
+        self.rect = self.image.get_rect()
+        self.rect.x = current_x
+        self.rect.y = current_y
+        self.pos = (self.rect.x, self.rect.y)
+        self.domain = 'passive-radar'
 
 
 class Game():
@@ -322,17 +453,17 @@ class Game():
                 self.quit = True
             elif event.type == pg.KEYDOWN:
                 if event.key == pg.K_KP0 or event.key == pg.K_0:
-                    self.player.fire_to_entity(self.block_list.sprites()[0].gid)
+                    self.player.fire_to_entity(6, self.block_list.sprites()[0].gid)
                 if event.key == pg.K_KP1 or event.key == pg.K_1:
-                    self.player.fire_to_entity(self.block_list.sprites()[1].gid)
+                    self.player.fire_to_entity(6, self.block_list.sprites()[1].gid)
                 if event.key == pg.K_KP2 or event.key == pg.K_2:
                     self.player.fire_to_entity(self.block_list.sprites()[2].gid)
                 if event.key == pg.K_KP3 or event.key == pg.K_3:
-                    self.block_list.sprites()[0].fire_to_entity(self.player.gid)
+                    self.block_list.sprites()[0].fire_to_entity(6, self.player.gid)
                 if event.key == pg.K_KP4 or event.key == pg.K_4:
-                    self.block_list.sprites()[1].fire_to_entity(self.player.gid)
+                    self.block_list.sprites()[1].fire_to_entity(6, self.player.gid)
                 if event.key == pg.K_KP5 or event.key == pg.K_5:
-                    self.block_list.sprites()[2].fire_to_entity(self.player.gid)
+                    self.block_list.sprites()[2].fire_to_entity(6, self.player.gid)
                 if event.key == pg.K_RIGHT:
                     self.player.set_heading(30)
                 if event.key == pg.K_LEFT:
@@ -413,26 +544,18 @@ class Game():
         self.clock.tick(60)
 
     def execute(self):
-        # quit = self.listen_events()
         # --- Game logic
         # Call the update() method on all the sprites
-        # self.listen_events()
-        # self.a += 0.2
-        # if self.a >= 360:
-        #     self.a = 0
-        # self.block_list.sprites()[0].set_heading(self.a)
-        # self.block_list.sprites()[0].set_speed(1)
-        # self.block_list.sprites()[0].move()
-        # self.player.set_radar_mode(1)
+        self.listen_events()
+        for player in self.player_list:
+            player.behave()
         for block in self.block_list:
-            block.play()
-        # self.block_list.sprites()[0].set_radar_mode(1)
+            block.behave()
+
         self.all_sprites_list.update()
         self.handle_radar()
         self.handle_range()
 
-        # print(self.player.perception_list)
-        # self.fire_bullet()
         self.handle_bullets()
         self.handle_message()
         self.render()
