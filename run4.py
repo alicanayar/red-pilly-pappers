@@ -144,7 +144,9 @@ class Block(Entity):
         self.base_image = self.image
         self.base_center = self.rect.center
         self.circle = Circle(RED, 500, self.rect)
-        self.circle2 = Circle(RED, 400, self.rect)
+        # self.circle2 = Circle(RED, 400, self.rect)
+        self.circle2 = pg.sprite.Group()
+        self.circle2.add(Circle(RED, 400, self.rect), Circle(RED, 100, self.rect))
         self.gid = random.randint(0,1000)
         # self.heading = 0
         self.damage = 0
@@ -171,7 +173,8 @@ class Block(Entity):
         super().update()
         self.rect.center = self.pos
         self.circle.rect_ = self.rect
-        self.circle2.rect_ = self.rect
+        for circle2 in self.circle2:
+            circle2.rect_ = self.rect
 
     def behave(self):
         if self.get_radar_mode() == 0:
@@ -525,7 +528,7 @@ class Game():
 
         for block in self.block_list:
             block.range_list.empty()
-            range_list = pg.sprite.spritecollide(block.circle2, self.player_list, False)
+            range_list = pg.sprite.spritecollide(block.circle2.sprites()[0], self.player_list, False)
             if len(range_list) > 0:
                 for ranged in range_list:
                     block.range_list.add(ranged)
